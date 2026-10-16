@@ -8,48 +8,34 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// DIRECT GEMINI API CALL WITH RETRIES
+// DIRECT OPENAI CALL (STABLE & FAST)
 // ==========================================
-async function callGemini(userText, retries = 3, delay = 1000) {
-    const apiKey = process.env.GEMINI_API_KEY;
+async function callAI(userText) {
+    const apiKey = process.env.OPENAI_API_KEY;
     
-    // Updated to v1 production endpoint to fix the 404 error
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp." },
+                { role: "user", content: userText }
+            ]
+        })
+    });
 
-    const payload = {
-        contents: [{
-            parts: [{ text: userText }]
-        }],
-        systemInstruction: {
-            parts: [{ text: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp." }]
-        }
-    };
-
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await res.json();
-
-            if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                return data.candidates[0].content.parts[0].text;
-            }
-
-            console.warn(`Gemini API Attempt ${attempt} issue:`, JSON.stringify(data));
-            if (attempt === retries) throw new Error(data.error?.message || "Failed to get response from Gemini");
-
-        } catch (err) {
-            console.error(`Attempt ${attempt} failed: ${err.message}`);
-            if (attempt === retries) throw err;
-        }
-
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+    const data = await response.json();
+    
+    if (data.error) {
+        console.error("OpenAI Error:", data.error);
+        throw new Error(data.error.message);
     }
+
+    return data.choices[0].message.content;
 }
 
 // ==========================================
@@ -84,7 +70,7 @@ app.post('/webhook', async (req, res) => {
         console.log(`Received message from ${senderPhone}: ${userText}`);
 
         // Get AI reply
-        const aiReply = await callGemini(userText);
+        const aiReply = await callAI(userText);
         console.log(`AI Reply generated: ${aiReply}`);
 
         // Send WhatsApp reply
