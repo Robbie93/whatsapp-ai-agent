@@ -1,5 +1,6 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -7,35 +8,26 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// ==========================================
-// DIRECT OPENAI CALL (STABLE & FAST)
-// ==========================================
-async function callAI(userText) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp." },
-                { role: "user", content: userText }
-            ]
-        })
-    });
+// Initialize Gemini with your existing API Key
+const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = ai.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
+});
 
-    const data = await response.json();
-    
-    if (data.error) {
-        console.error("OpenAI Error:", data.error);
-        throw new Error(data.error.message);
+// Helper function to call Gemini with exponential backoff retries
+async function callGemini(userText, retries = 3, delay = 1000) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const chat = model.startChat();
+            const result = await chat.sendMessage(userText);
+            return result.response.text();
+        } catch (err) {
+            console.warn(`Gemini Attempt ${attempt} failed: ${err.message}`);
+            if (attempt === retries) throw err;
+            await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        }
     }
-
-    return data.choices[0].message.content;
 }
 
 // ==========================================
@@ -58,7 +50,6 @@ app.get('/webhook', (req, res) => {
 // 2. WHATSAPP MESSAGE RECEIVER
 // ==========================================
 app.post('/webhook', async (req, res) => {
-    // Always acknowledge receipt immediately to Meta
     res.sendStatus(200);
 
     try {
@@ -70,14 +61,14 @@ app.post('/webhook', async (req, res) => {
         console.log(`Received message from ${senderPhone}: ${userText}`);
 
         // Get AI reply
-        const aiReply = await callAI(userText);
+        const aiReply = await callGemini(userText);
         console.log(`AI Reply generated: ${aiReply}`);
 
         // Send WhatsApp reply
         await sendWhatsAppMessage(senderPhone, aiReply);
 
     } catch (error) {
-        console.error("Error in webhook processing:", error.message);
+        console.error("Error processing message:", error.message);
     }
 });
 
