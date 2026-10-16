@@ -1,6 +1,5 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -8,20 +7,55 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Initialize official Google GenAI SDK
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Array of fallback models to cycle through during 503 high-demand spikes
+const MODELS = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash'
+];
 
-// Call Gemini using the official auto-updating 'gemini-flash-latest' alias
-async function callGemini(userText) {
-    const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: userText,
-        config: {
-            systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
+// Helper function to call Gemini REST API with retries and fallback models
+async function callGeminiWithFallback(userText) {
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    for (const modelName of MODELS) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        const payload = {
+            contents: [{
+                parts: [{ text: userText }]
+            }],
+            systemInstruction: {
+                parts: [{ text: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp." }]
+            }
+        };
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                    return data.candidates[0].content.parts[0].text;
+                }
+
+                console.warn(`Model ${modelName} (Attempt ${attempt}) busy:`, data.error?.message || JSON.stringify(data));
+
+            } catch (err) {
+                console.warn(`Model ${modelName} (Attempt ${attempt}) error: ${err.message}`);
+            }
+
+            // Wait 1 second before retrying the same model
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
-    });
+    }
 
-    return response.text;
+    throw new Error("All Gemini models are currently experiencing high demand. Please try again in a moment.");
 }
 
 // ==========================================
@@ -44,7 +78,6 @@ app.get('/webhook', (req, res) => {
 // 2. WHATSAPP MESSAGE RECEIVER
 // ==========================================
 app.post('/webhook', async (req, res) => {
-    // Always acknowledge receipt immediately to Meta
     res.sendStatus(200);
 
     try {
@@ -55,15 +88,15 @@ app.post('/webhook', async (req, res) => {
         const userText = message.text.body;
         console.log(`Received message from ${senderPhone}: ${userText}`);
 
-        // Get AI reply
-        const aiReply = await callGemini(userText);
+        // Get AI reply with fallback mechanism
+        const aiReply = await callGeminiWithFallback(userText);
         console.log(`AI Reply generated: ${aiReply}`);
 
         // Send WhatsApp reply
         await sendWhatsAppMessage(senderPhone, aiReply);
 
     } catch (error) {
-        console.error("Error in webhook processing:", error.message);
+        console.error("Error processing message:", error.message);
     }
 });
 
