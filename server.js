@@ -8,12 +8,28 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Initialize Gemini AI with the current gemini-3.8-flash model
+// Initialize Gemini AI with standard model
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = ai.getGenerativeModel({ 
-    model: "gemini-3.8-flash",
+    model: "gemini-1.5-flash",
     systemInstruction: "You are a helpful AI assistant for a hospitality business. You can answer customer questions about the menu, opening hours, and policies. Keep your answers brief, friendly, and formatted for WhatsApp."
 });
+
+// Helper function to retry when Google returns 503 (Server Overloaded)
+async function generateWithRetry(userText, retries = 3, delay = 1500) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const chat = model.startChat();
+            const result = await chat.sendMessage(userText);
+            return result.response.text();
+        } catch (error) {
+            console.warn(`Attempt ${i + 1} failed (${error.message}). Retrying in ${delay}ms...`);
+            if (i === retries - 1) throw error; // Re-throw if all attempts fail
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2; // Exponential backoff
+        }
+    }
+}
 
 // ==========================================
 // 1. META WEBHOOK VERIFICATION ENDPOINT
@@ -36,6 +52,7 @@ app.get('/webhook', (req, res) => {
 // 2. WHATSAPP MESSAGE RECEIVER
 // ==========================================
 app.post('/webhook', async (req, res) => {
+    // Acknowledge receipt to Meta immediately
     res.sendStatus(200);
 
     try {
@@ -49,10 +66,8 @@ app.post('/webhook', async (req, res) => {
         const userText = message.text.body;
         console.log(`Received message from ${senderPhone}: ${userText}`);
 
-        // Generate text using gemini-3.8-flash
-        const chat = model.startChat();
-        const result = await chat.sendMessage(userText);
-        const aiReply = result.response.text();
+        // Generate response with auto-retry on 503 overload
+        const aiReply = await generateWithRetry(userText);
 
         // Send back to WhatsApp user
         await sendWhatsAppMessage(senderPhone, aiReply);
