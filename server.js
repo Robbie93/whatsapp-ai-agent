@@ -12,7 +12,7 @@ app.use(express.json());
 // Initialize Gemini AI
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = ai.getGenerativeModel({ 
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
     systemInstruction: "You are a helpful AI assistant for a hospitality business. You can answer customer questions about the menu, opening hours, and policies. Keep your answers brief, friendly, and formatted for WhatsApp."
 });
 
