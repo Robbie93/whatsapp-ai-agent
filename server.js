@@ -11,19 +11,26 @@ app.use(express.json());
 // Initialize the official Google GenAI SDK
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-async function callGemini(userText) {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents: userText,
-            config: {
-                systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
+// Call Gemini with a 5-attempt auto-retry for 503 high-demand errors
+async function callGemini(userText, retries = 5, delay = 2000) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-3.8-flash',
+                contents: userText,
+                config: {
+                    systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
+                }
+            });
+            return response.text;
+        } catch (error) {
+            console.warn(`Attempt ${attempt} failed due to Google API demand:`, error.message);
+            if (attempt === retries) {
+                return "I am currently experiencing high demand, please try again in a moment!";
             }
-        });
-        return response.text;
-    } catch (error) {
-        console.error("SDK Error:", error);
-        return "I am currently experiencing high demand, please try again in a moment!";
+            // Wait a few seconds before trying again
+            await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        }
     }
 }
 
@@ -36,6 +43,7 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+    // Always acknowledge Meta immediately
     res.sendStatus(200);
 
     try {
