@@ -12,8 +12,9 @@ app.use(express.json());
 // ==========================================
 async function callGemini(userText, retries = 3, delay = 1000) {
     const apiKey = process.env.GEMINI_API_KEY;
-    // Using the stable, standard Gemini endpoint directly
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    // Updated to v1 production endpoint to fix the 404 error
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const payload = {
         contents: [{
@@ -71,7 +72,8 @@ app.get('/webhook', (req, res) => {
 // 2. WHATSAPP MESSAGE RECEIVER
 // ==========================================
 app.post('/webhook', async (req, res) => {
-    res.sendStatus(200); // Always acknowledge immediately to Meta
+    // Always acknowledge receipt immediately to Meta
+    res.sendStatus(200);
 
     try {
         const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
