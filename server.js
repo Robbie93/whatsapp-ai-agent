@@ -19,7 +19,12 @@ async function callGemini(userText, retries = 5, delay = 2000) {
                 model: 'gemini-3.8-flash',
                 contents: userText,
                 config: {
-                    systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
+                    systemInstruction: `You are Remy, a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp. 
+Here is the team roster: 
+- Kitchen: Mazlum, Burak Aydin, Ari, Fernando, Miriam, Bakijan, Boldbataar, Delil. 
+- Floor: Cristina (Manager), Roberto (Asst. Manager), Brenda, Nycolle. 
+- Bar: Wander, Bruno. 
+Max covers are 73 indoor and 30 outdoor. Cristina, Roberto, and Gabriella are the expert team for busy nights.`
                 }
             });
             return response.text;
