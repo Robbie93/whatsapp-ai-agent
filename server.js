@@ -1,6 +1,6 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -8,26 +8,20 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// Initialize Gemini with your existing API Key
-const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = ai.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
-});
+// Initialize official Google GenAI SDK
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Helper function to call Gemini with exponential backoff retries
-async function callGemini(userText, retries = 3, delay = 1000) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const chat = model.startChat();
-            const result = await chat.sendMessage(userText);
-            return result.response.text();
-        } catch (err) {
-            console.warn(`Gemini Attempt ${attempt} failed: ${err.message}`);
-            if (attempt === retries) throw err;
-            await new Promise(resolve => setTimeout(resolve, delay * attempt));
+// Call Gemini using the official auto-updating 'gemini-flash-latest' alias
+async function callGemini(userText) {
+    const response = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: userText,
+        config: {
+            systemInstruction: "You are a helpful AI assistant for a hospitality business. Keep your answers brief, friendly, and formatted for WhatsApp."
         }
-    }
+    });
+
+    return response.text;
 }
 
 // ==========================================
@@ -50,6 +44,7 @@ app.get('/webhook', (req, res) => {
 // 2. WHATSAPP MESSAGE RECEIVER
 // ==========================================
 app.post('/webhook', async (req, res) => {
+    // Always acknowledge receipt immediately to Meta
     res.sendStatus(200);
 
     try {
@@ -68,7 +63,7 @@ app.post('/webhook', async (req, res) => {
         await sendWhatsAppMessage(senderPhone, aiReply);
 
     } catch (error) {
-        console.error("Error processing message:", error.message);
+        console.error("Error in webhook processing:", error.message);
     }
 });
 
